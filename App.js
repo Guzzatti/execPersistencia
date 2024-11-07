@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { FlatList, StyleSheet, View } from "react-native";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
 import {
   Appbar,
   Button,
@@ -11,68 +13,67 @@ import {
 } from "react-native-paper";
 import myColors from "./assets/colors.json";
 import myColorsDark from "./assets/colorsDark.json";
+import { insertLocation, getAllLocations } from './db';
 
 export default function App() {
-  const [isSwitchOn, setIsSwitchOn] = useState(false); // variável para controle do darkMode
-  const [isLoading, setIsLoading] = useState(false); // variável para controle do loading do button
-  const [locations, setLocations] = useState(null); // variável para armazenar as localizações
-
-  // Carrega tema default da lib RN PAPER com customização das cores. Para customizar o tema, veja:
-  // https://callstack.github.io/react-native-paper/docs/guides/theming/#creating-dynamic-theme-colors
+  const [isSwitchOn, setIsSwitchOn] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [locations, setLocations] = useState([]);
   const [theme, setTheme] = useState({
     ...DefaultTheme,
     myOwnProperty: true,
     colors: myColors.colors,
   });
 
-  // load darkMode from AsyncStorage
-  async function loadDarkMode() {}
-
-  // darkMode switch event
-  async function onToggleSwitch() {
-    setIsSwitchOn(!isSwitchOn);
+  async function loadDarkMode() {
+    const savedTheme = await AsyncStorage.getItem('darkMode');
+    if (savedTheme !== null) {
+      setIsSwitchOn(savedTheme === 'true');
+    }
   }
 
-  // get location (bottao capturar localização)
+  async function saveDarkMode(value) {
+    await AsyncStorage.setItem('darkMode', value.toString());
+  }
+
+  async function onToggleSwitch() {
+    const newSwitchState = !isSwitchOn;
+    setIsSwitchOn(newSwitchState);
+    await saveDarkMode(newSwitchState);
+  }
+
   async function getLocation() {
     setIsLoading(true);
-
-    // Localização fake, substituir por localização real do dispositivo
-    const coords = {
-      latitude: -23.5505199,
-      longitude: -46.6333094,
-    };
-
-    setIsLoading(false);
-  }
-
-  // load locations from db sqlite - faz a leitura das localizações salvas no banco de dados
-  async function loadLocations() {
-    setIsLoading(true);
-
-    // generate fake locations
-    const locations = [];
-    for (let i = 0; i < 5; i++) {
-      locations.push({
-        id: i,
-        latitude: -23.5505199 + i,
-        longitude: -46.6333094 + i,
-      });
+    let { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      setIsLoading(false);
+      alert('Permissão para acessar localização negada.');
+      return;
     }
 
-    setLocations(locations);
+    let location = await Location.getCurrentPositionAsync({});
+    const coords = {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    };
+
+    await insertLocation(coords);
+    setLocations(await getAllLocations());
     setIsLoading(false);
   }
 
-  // Use Effect para carregar o darkMode e as localizações salvas no banco de dados
-  // É executado apenas uma vez, quando o componente é montado
+  async function loadLocations() {
+    setIsLoading(true);
+    const savedLocations = await getAllLocations();
+    setLocations(savedLocations);
+    setIsLoading(false);
+  }
+
   useEffect(() => {
     loadDarkMode();
     loadLocations();
   }, []);
 
-  // Efetiva a alteração do tema dark/light quando a variável isSwitchOn é alterada
-  // É executado sempre que a variável isSwitchOn é alterada
   useEffect(() => {
     if (isSwitchOn) {
       setTheme({ ...theme, colors: myColorsDark.colors });
@@ -108,9 +109,9 @@ export default function App() {
             <List.Item
               title={`Localização ${item.id}`}
               description={`Latitude: ${item.latitude} | Longitude: ${item.longitude}`}
-            ></List.Item>
+            />
           )}
-        ></FlatList>
+        />
       </View>
     </PaperProvider>
   );
